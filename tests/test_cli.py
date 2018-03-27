@@ -2487,3 +2487,25 @@ def test_example_13(tmpdir, capsys):
         #define BUILD_DESCRIPTION 2.2.0 (XXXX 12:00)
         """).replace("XXXX", "{:04}-{:02}-{:02}".format(now.year, now.month, now.day)) \
            == tmpdir.join("VERSION.h").read()
+
+
+def test_independent_falsy_value_in_config_does_not_bump_independently(tmpdir, capsys):
+    tmpdir.join("VERSION").write("2.1.0-5123")
+    tmpdir.chdir()
+    tmpdir.join(".bumpversion.cfg").write(dedent("""
+        [bumpversion]
+        current_version: 2.1.0-5123
+        parse = (?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)\-(?P<build>\d+)
+        serialize = {major}.{minor}.{patch}-{build}
+
+        [bumpversion:file:VERSION]
+
+        [bumpversion:part:build]
+        independent = 0
+        """))
+
+    main(['build'])
+    assert '2.1.0-5124' == tmpdir.join("VERSION").read()
+
+    main(['major'])
+    assert '3.0.0-0' == tmpdir.join("VERSION").read()

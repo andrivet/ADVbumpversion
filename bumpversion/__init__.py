@@ -686,6 +686,9 @@ def main(original_args=None):
                     section_config['values'] = list(filter(None, (x.strip() for x in section_config['values'].splitlines())))
                     this_version_part_configuration = ConfiguredVersionPartConfiguration
 
+                if config.has_option(section_name, 'independent'):
+                    section_config['independent'] = config.getboolean(section_name, 'independent')
+
                 part_configs[section_value] = this_version_part_configuration(**section_config)
 
             elif section_prefix == "file":
