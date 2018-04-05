@@ -847,6 +847,8 @@ def main(original_args=None):
     logger.info("New version will be '{}'".format(args.new_version))
 
     file_names = file_names or positionals[1:]
+    if config_file_exists:
+        file_names += [config_file]
 
     for file_name in file_names:
         files.append(ConfiguredFile(file_name, vc))
@@ -881,36 +883,6 @@ def main(original_args=None):
 
     for key, value in config.items('bumpversion'):
         logger_list.info("{}={}".format(key, value))
-
-    config.remove_option('bumpversion', 'new_version')
-
-    config.set('bumpversion', 'current_version', args.new_version)
-
-    new_config = StringIO()
-
-    try:
-        write_to_config_file = (not args.dry_run) and config_file_exists
-
-        logger.info("{} to config file {}:".format(
-            "Would write" if not write_to_config_file else "Writing",
-            config_file,
-        ))
-
-        config.write(new_config)
-        logger.info(new_config.getvalue())
-
-        if write_to_config_file:
-            with io.open(config_file, 'wb') as f:
-                f.write(new_config.getvalue().encode('utf-8'))
-
-    except UnicodeEncodeError:
-        warnings.warn(
-            "Unable to write UTF-8 to config file, because of an old configparser version. "
-            "Update with `pip install --upgrade configparser`."
-        )
-
-    if config_file_exists:
-        commit_files.append(config_file)
 
     if not vcs:
         return
