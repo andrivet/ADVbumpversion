@@ -16,7 +16,7 @@ import datetime
 
 import bumpversion
 
-from bumpversion import main, DESCRIPTION, WorkingDirectoryIsDirtyException, \
+from bumpversion import _main, main, DESCRIPTION, WorkingDirectoryIsDirtyException, \
     split_args_in_optional_and_positional
 
 SUBPROCESS_ENV = dict(
@@ -397,9 +397,10 @@ def test_dirty_workdir(tmpdir, vcs):
 
     check_call([vcs, "add", "dirty"])
 
-    with pytest.raises(WorkingDirectoryIsDirtyException):
+    with pytest.raises(SystemExit) as execinfo:
         with mock.patch("bumpversion.logger") as logger:
-            main(['patch', '--current-version', '1', '--new-version', '2', 'file7'])
+            _main(['patch', '--current-version', '1', '--new-version', '2', 'file7'])
+    assert execinfo.value.code == 1
 
     actual_log = "\n".join(_mock_calls_to_string(logger)[4:])
 
@@ -1089,7 +1090,7 @@ def test_log_invalid_regex_exit(tmpdir):
 
     with pytest.raises(SystemExit):
         with mock.patch("bumpversion.logger") as logger:
-            main(['--parse', '*kittens*', '--current-version', '12', '--new-version', '13', 'patch'])
+            _main(['--parse', '*kittens*', '--current-version', '12', '--new-version', '13', 'patch'])
 
     actual_log = "\n".join(_mock_calls_to_string(logger)[4:])
 

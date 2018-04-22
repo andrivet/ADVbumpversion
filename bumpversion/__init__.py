@@ -299,22 +299,26 @@ class ConfiguredFile(object):
         return '<bumpversion.ConfiguredFile:{}>'.format(self.path)
 
 
-class IncompleteVersionRepresenationException(Exception):
+class UserException(Exception):
+    """Common base clase for exceptions to report nicley to the user."""
+
+
+class IncompleteVersionRepresenationException(UserException):
     def __init__(self, message):
         self.message = message
 
 
-class MissingValueForSerializationException(Exception):
+class MissingValueForSerializationException(UserException):
     def __init__(self, message):
         self.message = message
 
 
-class WorkingDirectoryIsDirtyException(Exception):
+class WorkingDirectoryIsDirtyException(UserException):
     def __init__(self, message):
         self.message = message
 
 
-class MercurialDoesNotSupportSignedTagsException(Exception):
+class MercurialDoesNotSupportSignedTagsException(UserException):
     def __init__(self, message):
         self.message = message
 
@@ -373,8 +377,7 @@ class VersionConfig(object):
         try:
             self.parse_regex = re.compile(parse, re.VERBOSE)
         except sre_constants.error as e:
-            logger.error("--parse '{}' is not a valid regex".format(parse))
-            raise e
+            raise UserException("--parse '{}' is not a valid regex".format(parse))
 
         self.serialize_formats = serialize
 
@@ -491,12 +494,9 @@ class VersionConfig(object):
                 # logger.info(e.message)
                 if not chosen:
                     chosen = serialize_format
-            except MissingValueForSerializationException as e:
-                logger.info(e.message)
-                raise e
 
         if not chosen:
-            raise KeyError("Did not find suitable serialization format")
+            raise UserException("Did not find suitable serialization format")
 
         # logger.info("Selected serialization format '{}'".format(chosen))
 
@@ -713,6 +713,7 @@ def main(original_args=None):
 
     else:
         message = "Could not read config file at {}".format(config_file)
+        # XXX: why raise argparse error when it isn't handled specially so just dumps?
         if explicit_config:
             raise argparse.ArgumentTypeError(message)
         else:
@@ -745,16 +746,13 @@ def main(original_args=None):
 
     context = dict(list(time_context.items()) + list(prefixed_environ().items()) + list(vcs_info.items()))
 
-    try:
-        vc = VersionConfig(
-            parse=known_args.parse,
-            serialize=known_args.serialize,
-            search=known_args.search,
-            replace=known_args.replace,
-            part_configs=part_configs,
-        )
-    except sre_constants.error as e:
-        sys.exit(1)
+    vc = VersionConfig(
+        parse=known_args.parse,
+        serialize=known_args.serialize,
+        search=known_args.search,
+        replace=known_args.replace,
+        part_configs=part_configs,
+    )
 
     current_version = vc.parse(known_args.current_version) if known_args.current_version else None
 
@@ -857,9 +855,9 @@ def main(original_args=None):
                 vcs.assert_nondirty()
             except WorkingDirectoryIsDirtyException as e:
                 if not defaults['allow_dirty']:
-                    logger.warning(
-                        "{}\n\nUse --allow-dirty to override this if you know what you're doing.".format(e.message))
-                    raise
+                    raise UserException(
+                        "{}\n\nUse --allow-dirty to override this if you know what you're doing.".format(e.message)
+                    )
             break
         else:
             vcs = None
@@ -970,3 +968,12 @@ def main(original_args=None):
 
         if commit_tag:
             vcs.tag(sign_tags, tag_name, tag_message)
+
+
+def _main(original_args=None):
+    """Wrapper for main which catches UserException to present a prettier message."""
+    try:
+        main(original_args)
+    except UserException as e:
+        logger.error(e)
+        raise SystemExit(1)
