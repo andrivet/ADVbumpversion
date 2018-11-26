@@ -25,17 +25,30 @@ SUBPROCESS_ENV = dict(
 
 call = partial(subprocess.call, env=SUBPROCESS_ENV)
 check_call = partial(subprocess.check_call, env=SUBPROCESS_ENV)
-check_output = partial(subprocess.check_output,  env=SUBPROCESS_ENV)
+check_output = partial(subprocess.check_output, env=SUBPROCESS_ENV)
 
-xfail_if_no_git = pytest.mark.xfail(
-  call(["git", "help"]) != 0,
-  reason="git is not installed"
-)
+_has_git = call(["git", "help"]) == 0
+_has_hg = call(["hg", "help"]) == 0
 
-xfail_if_no_hg = pytest.mark.xfail(
-  call(["hg", "help"]) != 0,
-  reason="hg is not installed"
-)
+
+def xfail_if_no_git(params):
+  if not isinstance(params, (tuple, list)):
+    params = (params,)
+  if _has_git:
+    marks = ()
+  else:
+    marks = pytest.mark.xfail(reason="git is not installed"),
+  return pytest.param(*params, marks=marks)
+
+
+def xfail_if_no_hg(params):
+  if not isinstance(params, (tuple, list)):
+    params = (params,)
+  if _has_hg:
+    marks = ()
+  else:
+    marks = pytest.mark.xfail(reason="hg is not installed"),
+  return pytest.param(*params, marks=marks)
 
 
 @pytest.fixture(params=['.bumpversion.cfg', 'setup.cfg'])
@@ -86,7 +99,7 @@ part
 [file [file ...]]
 """.strip().splitlines()
 
-EXPECTED_USAGE = ("""
+EXPECTED_USAGE = (r"""
 
 %s
 
@@ -190,7 +203,9 @@ def test_defaults_in_usage_with_config(tmpdir, capsys):
     tmpdir.join("mydefaults.cfg").write("""[bumpversion]
 current_version: 18
 new_version: 19
-files: file1 file2 file3""")
+[bumpversion:file:file1]
+[bumpversion:file:file2]
+[bumpversion:file:file3]""")
     with pytest.raises(SystemExit):
         main(['--config-file', 'mydefaults.cfg', '--help'])
 
@@ -229,7 +244,7 @@ def test_config_file(tmpdir):
     tmpdir.join("mybumpconfig.cfg").write("""[bumpversion]
 current_version: 0.9.34
 new_version: 0.9.35
-files: file1""")
+[bumpversion:file:file1]""")
 
     tmpdir.chdir()
     main(shlex_split("patch --config-file mybumpconfig.cfg"))
@@ -242,7 +257,7 @@ def test_default_config_files(tmpdir, configfile):
     tmpdir.join(configfile).write("""[bumpversion]
 current_version: 0.10.2
 new_version: 0.10.3
-files: file2""")
+[bumpversion:file:file2]""")
 
     tmpdir.chdir()
     main(['patch'])
@@ -255,11 +270,11 @@ def test_multiple_config_files(tmpdir):
     tmpdir.join("setup.cfg").write("""[bumpversion]
 current_version: 0.10.2
 new_version: 0.10.3
-files: file2""")
+[bumpversion:file:file2]""")
     tmpdir.join(".bumpversion.cfg").write("""[bumpversion]
 current_version: 0.10.2
 new_version: 0.10.4
-files: file2""")
+[bumpversion:file:file2]""")
 
     tmpdir.chdir()
     main(['patch'])
@@ -272,7 +287,7 @@ def test_config_file_is_updated(tmpdir):
     tmpdir.join(".bumpversion.cfg").write("""[bumpversion]
 current_version: 0.0.13
 new_version: 0.0.14
-files: file3
+[bumpversion:file:file3]
 """)
 
     tmpdir.chdir()
@@ -280,7 +295,8 @@ files: file3
 
     assert """[bumpversion]
 current_version = 0.0.14
-files = file3
+
+[bumpversion:file:file3]
 
 """ == tmpdir.join(".bumpversion.cfg").read()
 
@@ -291,10 +307,10 @@ def test_dry_run(tmpdir, vcs):
 
     config = """[bumpversion]
 current_version = 0.12.0
-files = file4
 tag = True
 commit = True
 message = DO NOT BUMP VERSIONS WITH THIS FILE
+[bumpversion:file:file4]
 """
 
     version = "0.12.0"
@@ -333,7 +349,7 @@ def test_bump_version_custom_parse(tmpdir):
     tmpdir.chdir()
     main([
          '--current-version', 'XXX1;0;0',
-         '--parse', 'XXX(?P<spam>\d+);(?P<garlg>\d+);(?P<slurp>\d+)',
+         '--parse', r'XXX(?P<spam>\d+);(?P<garlg>\d+);(?P<slurp>\d+)',
          '--serialize', 'XXX{spam};{garlg};{slurp}',
          'garlg',
          'file6'
@@ -347,11 +363,11 @@ def test_bump_version_custom_parse_serialize_configfile(tmpdir):
     tmpdir.join("file12").write("ZZZ8;0;0")
     tmpdir.chdir()
 
-    tmpdir.join(".bumpversion.cfg").write("""[bumpversion]
-files = file12
+    tmpdir.join(".bumpversion.cfg").write(r"""[bumpversion]
 current_version = ZZZ8;0;0
 serialize = ZZZ{spam};{garlg};{slurp}
 parse = ZZZ(?P<spam>\d+);(?P<garlg>\d+);(?P<slurp>\d+)
+[bumpversion:file:file12]
 """)
 
     main(['garlg'])
@@ -364,7 +380,7 @@ def test_bumpversion_custom_parse_semver(tmpdir):
     tmpdir.chdir()
     main([
          '--current-version', '1.1.7-master+allan1',
-         '--parse', '(?P<major>\d+).(?P<minor>\d+).(?P<patch>\d+)(-(?P<prerel>[^\+]+))?(\+(?P<meta>.*))?',
+         '--parse', r'(?P<major>\d+).(?P<minor>\d+).(?P<patch>\d+)(-(?P<prerel>[^\+]+))?(\+(?P<meta>.*))?',
          '--serialize', '{major}.{minor}.{patch}-{prerel}+{meta}',
          'meta',
          'file15'
@@ -575,7 +591,7 @@ def test_bump_version_env(tmpdir):
     main([
          '--verbose',
          '--current-version', '2.3.4',
-         '--parse', '(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+).*',
+         '--parse', r'(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+).*',
          '--serialize', '{major}.{minor}.{patch}.pre{$BUILD_NUMBER}',
          'patch',
          'on_jenkins',
@@ -643,7 +659,7 @@ def test_distance_to_latest_tag_as_part_of_new_version(tmpdir, vcs):
     # don't give current-version, that should come from tag
     main([
          'patch',
-         '--parse', '(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+).*',
+         '--parse', r'(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+).*',
          '--serialize', '{major}.{minor}.{patch}-pre{distance_to_latest_tag}',
          'mysourcefile',
          ])
@@ -807,7 +823,7 @@ current_version: 42.4.1
 commit: True
 tag: True
 tag_message: test {new_version}-tag
-files: VERSION
+[bumpversion:file:VERSION]
 """)
 
     main(['patch'])
@@ -930,7 +946,7 @@ def test_commit_and_tag_from_below_vcs_root(tmpdir, vcs, monkeypatch):
 @pytest.mark.parametrize("vcs", [xfail_if_no_git("git"), xfail_if_no_hg("hg")])
 def test_non_vcs_operations_if_vcs_is_not_installed(tmpdir, vcs, monkeypatch):
 
-    monkeypatch.setenv("PATH", "")
+    monkeypatch.setenv(str("PATH"), str())
 
     tmpdir.chdir()
     tmpdir.join("VERSION").write("31.0.3")
@@ -945,7 +961,7 @@ def test_multiple_serialize_threepart(tmpdir):
     tmpdir.chdir()
     main([
          '--current-version', 'Version: 0.9',
-         '--parse', 'Version:\ (?P<major>\d+)(\.(?P<minor>\d+)(\.(?P<patch>\d+))?)?',
+         '--parse', r'Version:\ (?P<major>\d+)(\.(?P<minor>\d+)(\.(?P<patch>\d+))?)?',
          '--serialize', 'Version: {major}.{minor}.{patch}',
          '--serialize', 'Version: {major}.{minor}',
          '--serialize', 'Version: {major}',
@@ -962,7 +978,7 @@ def test_multiple_serialize_twopart(tmpdir):
     tmpdir.chdir()
     main([
          '--current-version', '0.9',
-         '--parse', '(?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?',
+         '--parse', r'(?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?',
          '--serialize', '{major}.{minor}.{patch}',
          '--serialize', '{major}.{minor}',
          'minor',
@@ -977,7 +993,7 @@ def test_multiple_serialize_twopart_patch(tmpdir):
     tmpdir.chdir()
     main([
          '--current-version', '0.7',
-         '--parse', '(?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?',
+         '--parse', r'(?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?',
          '--serialize', '{major}.{minor}.{patch}',
          '--serialize', '{major}.{minor}',
          'patch',
@@ -991,13 +1007,13 @@ def test_multiple_serialize_twopart_patch_configfile(tmpdir):
     tmpdir.join("fileD").write("0.6")
     tmpdir.chdir()
 
-    tmpdir.join(".bumpversion.cfg").write("""[bumpversion]
-files = fileD
+    tmpdir.join(".bumpversion.cfg").write(r"""[bumpversion]
 current_version = 0.6
 serialize =
   {major}.{minor}.{patch}
   {major}.{minor}
 parse = (?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?
+[bumpversion:file:fileD]
 """)
 
     main(['patch'])
@@ -1015,7 +1031,7 @@ def test_log_no_config_file_info_message(tmpdir, capsys):
 
     actual_log = "\n".join(_mock_calls_to_string(logger)[4:])
 
-    expected_log = dedent("""
+    expected_log = dedent(r"""
         info|Could not read config file at .bumpversion.cfg|
         info|Parsing version '1.0.0' using regexp '(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)'|
         info|Parsed the following values: major=1, minor=0, patch=0|
@@ -1089,29 +1105,29 @@ def test_complex_info_logging(tmpdir, capsys):
     tmpdir.join("fileE").write("0.4")
     tmpdir.chdir()
 
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
-        files = fileE
         current_version = 0.4
         serialize =
           {major}.{minor}.{patch}
           {major}.{minor}
         parse = (?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?
+        [bumpversion:file:fileE]
         """).strip())
 
     with mock.patch("bumpversion.logger") as logger:
         main(['patch'])
 
     # beware of the trailing space (" ") after "serialize =":
-    expected_log = dedent("""
+    expected_log = dedent(r"""
         info|Reading config file .bumpversion.cfg:|
         info|[bumpversion]
-        files = fileE
         current_version = 0.4
         serialize =
           {major}.{minor}.{patch}
           {major}.{minor}
-        parse = (?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?|
+        parse = (?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?
+        [bumpversion:file:fileE]|
         info|Parsing version '0.4' using regexp '(?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?'|
         info|Parsed the following values: major=0, minor=4, patch=0|
         info|Attempting to increment part 'patch'|
@@ -1129,13 +1145,14 @@ def test_complex_info_logging(tmpdir, capsys):
         +0.4.1|
         info|Writing to config file .bumpversion.cfg:|
         info|[bumpversion]
-        files = fileE
         current_version = 0.4.1
         serialize = 
         	{major}.{minor}.{patch}
         	{major}.{minor}
         parse = (?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?
-        
+
+        [bumpversion:file:fileE]
+
         |
         """).strip()
 
@@ -1149,16 +1166,16 @@ def test_subjunctive_dry_run_logging(tmpdir, vcs):
     tmpdir.join("dont_touch_me.txt").write("0.8")
     tmpdir.chdir()
 
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
-        files = dont_touch_me.txt
         current_version = 0.8
         commit = True
         tag = True
         serialize =
           {major}.{minor}.{patch}
           {major}.{minor}
-        parse = (?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?"""
+        parse = (?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?
+        [bumpversion:file:dont_touch_me.txt]"""
     ).strip())
 
     check_call([vcs, "init"])
@@ -1169,17 +1186,17 @@ def test_subjunctive_dry_run_logging(tmpdir, vcs):
         main(['patch', '--dry-run'])
 
     # beware of the trailing space (" ") after "serialize =":
-    expected_log = dedent("""
+    expected_log = dedent(r"""
         info|Reading config file .bumpversion.cfg:|
         info|[bumpversion]
-        files = dont_touch_me.txt
         current_version = 0.8
         commit = True
         tag = True
         serialize =
           {major}.{minor}.{patch}
           {major}.{minor}
-        parse = (?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?|
+        parse = (?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?
+        [bumpversion:file:dont_touch_me.txt]|
         info|Parsing version '0.8' using regexp '(?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?'|
         info|Parsed the following values: major=0, minor=8, patch=0|
         info|Attempting to increment part 'patch'|
@@ -1198,7 +1215,6 @@ def test_subjunctive_dry_run_logging(tmpdir, vcs):
         +0.8.1|
         info|Would write to config file .bumpversion.cfg:|
         info|[bumpversion]
-        files = dont_touch_me.txt
         current_version = 0.8.1
         commit = True
         tag = True
@@ -1206,6 +1222,8 @@ def test_subjunctive_dry_run_logging(tmpdir, vcs):
         	{major}.{minor}.{patch}
         	{major}.{minor}
         parse = (?P<major>\d+)\.(?P<minor>\d+)(\.(?P<patch>\d+))?
+
+        [bumpversion:file:dont_touch_me.txt]
 
         |
         info|Would prepare Git commit|
@@ -1230,10 +1248,10 @@ def test_log_commitmessage_if_no_commit_tag_but_usable_vcs(tmpdir, vcs):
 
     tmpdir.join(".bumpversion.cfg").write(dedent("""
         [bumpversion]
-        files = please_touch_me.txt
         current_version = 0.3.3
         commit = False
         tag = False
+        [bumpversion:file:please_touch_me.txt]
         """).strip())
 
     check_call([vcs, "init"])
@@ -1244,13 +1262,13 @@ def test_log_commitmessage_if_no_commit_tag_but_usable_vcs(tmpdir, vcs):
         main(['patch'])
 
     # beware of the trailing space (" ") after "serialize =":
-    expected_log = dedent("""
+    expected_log = dedent(r"""
         info|Reading config file .bumpversion.cfg:|
         info|[bumpversion]
-        files = please_touch_me.txt
         current_version = 0.3.3
         commit = False
-        tag = False|
+        tag = False
+        [bumpversion:file:please_touch_me.txt]|
         info|Parsing version '0.3.3' using regexp '(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)'|
         info|Parsed the following values: major=0, minor=3, patch=3|
         info|Attempting to increment part 'patch'|
@@ -1268,11 +1286,12 @@ def test_log_commitmessage_if_no_commit_tag_but_usable_vcs(tmpdir, vcs):
         +0.3.4|
         info|Writing to config file .bumpversion.cfg:|
         info|[bumpversion]
-        files = please_touch_me.txt
         current_version = 0.3.4
         commit = False
         tag = False
-        
+
+        [bumpversion:file:please_touch_me.txt]
+
         |
         """).strip()
 
@@ -1291,10 +1310,10 @@ def test_listing(tmpdir, vcs):
 
     tmpdir.join(".bumpversion.cfg").write(dedent("""
         [bumpversion]
-        files = please_list_me.txt
         current_version = 0.5.5
         commit = False
         tag = False
+        [bumpversion:file:please_list_me.txt]
         """).strip())
 
     check_call([vcs, "init"])
@@ -1305,7 +1324,6 @@ def test_listing(tmpdir, vcs):
         main(['--list', 'patch'])
 
     expected_log = dedent("""
-        info|files=please_list_me.txt|
         info|current_version=0.5.5|
         info|commit=False|
         info|tag=False|
@@ -1327,10 +1345,10 @@ def test_no_list_no_stdout(tmpdir, vcs):
 
     tmpdir.join(".bumpversion.cfg").write(dedent("""
         [bumpversion]
-        files = please_dont_list_me.txt
         current_version = 0.5.5
         commit = False
         tag = False
+        [bumpversion:file:please_dont_list_me.txt]
         """).strip())
 
     check_call([vcs, "init"])
@@ -1350,15 +1368,15 @@ def test_bump_non_numeric_parts(tmpdir, capsys):
     tmpdir.join("with_prereleases.txt").write("1.5.dev")
     tmpdir.chdir()
 
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
-        files = with_prereleases.txt
         current_version = 1.5.dev
         parse = (?P<major>\d+)\.(?P<minor>\d+)(\.(?P<release>[a-z]+))?
         serialize =
           {major}.{minor}.{release}
           {major}.{minor}
 
+        [bumpversion:file:with_prereleases.txt]
         [bumpversion:part:release]
         optional_value = gamma
         values =
@@ -1380,7 +1398,7 @@ def test_optional_value_from_documentation(tmpdir):
     tmpdir.join("optional_value_fromdoc.txt").write("1.alpha")
     tmpdir.chdir()
 
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
       [bumpversion]
       current_version = 1.alpha
       parse = (?P<num>\d+)(\.(?P<release>.*))?(\.)?
@@ -1411,9 +1429,8 @@ def test_python_prerelease_release_postrelease(tmpdir, capsys):
     tmpdir.join("python386.txt").write("1.0a")
     tmpdir.chdir()
 
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
-        files = python386.txt
         current_version = 1.0a
 
         # adapted from http://legacy.python.org/dev/peps/pep-0386/#the-new-versioning-algorithm
@@ -1433,6 +1450,7 @@ def test_python_prerelease_release_postrelease(tmpdir, capsys):
           {major}.{minor}{prerel}
           {major}.{minor}
 
+        [bumpversion:file:python386.txt]
         [bumpversion:part:prerel]
         optional_value = d
         values =
@@ -1477,11 +1495,11 @@ def test_part_first_value(tmpdir):
 
     tmpdir.join(".bumpversion.cfg").write(dedent("""
         [bumpversion]
-        files = the_version.txt
         current_version = 0.9.4
 
         [bumpversion:part:minor]
         first_value = 1
+        [bumpversion:file:the_version.txt]
         """))
 
     main(['major', '--verbose'])
@@ -1495,7 +1513,7 @@ def test_multi_file_configuration(tmpdir, capsys):
 
     tmpdir.chdir()
 
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
         current_version = 1.0.3
 
@@ -1523,7 +1541,7 @@ def test_multi_file_configuration2(tmpdir, capsys):
 
     tmpdir.chdir()
 
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
       [bumpversion]
       current_version = 1.6.6
 
@@ -1583,7 +1601,7 @@ def test_search_replace_to_avoid_updating_unconcerned_lines(tmpdir, capsys):
         main(['minor', '--verbose'])
 
     # beware of the trailing space (" ") after "serialize =":
-    expected_log = dedent("""
+    expected_log = dedent(r"""
         info|Reading config file .bumpversion.cfg:|
         info|[bumpversion]
         current_version = 1.5.6
@@ -1711,7 +1729,6 @@ current_version = 3.2.1
 files = fileX fileY fileZ
 """)
 
-    bumpversion.__warningregistry__.clear()
     warnings.resetwarnings()
     warnings.simplefilter('always')
     with warnings.catch_warnings(record=True) as recwarn:
@@ -1729,7 +1746,6 @@ def test_deprecation_warning_multiple_files_cli(tmpdir):
     tmpdir.join("fileB").write("1.2.3")
     tmpdir.join("fileC").write("1.2.3")
 
-    bumpversion.__warningregistry__.clear()
     warnings.resetwarnings()
     warnings.simplefilter('always')
     with warnings.catch_warnings(record=True) as recwarn:
@@ -1747,7 +1763,7 @@ def test_file_specific_config_inherits_parse_serialize(tmpdir):
     tmpdir.join("todays_icecream").write("14-chocolate")
     tmpdir.join("todays_cake").write("14-chocolate")
 
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
       [bumpversion]
       current_version = 14-chocolate
       parse = (?P<major>\d+)(\-(?P<flavor>[a-z]+))?
@@ -1885,7 +1901,7 @@ def test_regression_characters_after_last_label_serialize_string(tmpdir, capsys)
     }
     ''')
 
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
     [bumpversion]
     current_version = 1.0.0
 
@@ -1930,11 +1946,11 @@ def test_regression_new_version_cli_in_files(tmpdir, capsys):
     tmpdir.join(".bumpversion.cfg").write(dedent("""
         [bumpversion]
         current_version = 0.7.2
-        files = myp___init__.py
         message = v{new_version}
         tag_name = {new_version}
         tag = true
         commit = true
+        [bumpversion:file:myp___init__.py]
         """).strip())
 
     main("patch --allow-dirty --verbose --new-version 0.9.3".split(" "))
@@ -2035,7 +2051,7 @@ def test_replace_build_date_configuration(tmpdir, capsys):
 
     tmpdir.chdir()
 
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
         current_version = 2.1.0 2017-12-04
         serialize = {major}.{minor}.{patch} {now:%Y-%m-%d}
@@ -2065,7 +2081,7 @@ def test_replace_build_date_configuration(tmpdir, capsys):
 def test_build_number_configuration(tmpdir, capsys):
     tmpdir.join("VERSION.txt").write("2.1.6-5123")
     tmpdir.chdir()
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
         current_version: 2.1.6-5123
         parse = (?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)\-(?P<build>\d+)
@@ -2100,7 +2116,7 @@ def test_example_2(tmpdir, capsys):
     tmpdir.join("mybumpconfig.cfg").write(dedent("""
         [bumpversion]
         current_version: 1.2.0
-        files: VERSION
+        [bumpversion:file:VERSION]
         """))
     main(['patch', '--config-file', 'mybumpconfig.cfg'])
     assert '1.2.1' == tmpdir.join("VERSION").read()
@@ -2135,7 +2151,7 @@ def test_example_4(tmpdir, capsys):
 def test_example_5(tmpdir, capsys):
     tmpdir.join("VERSION").write("2.1.0-5123")
     tmpdir.chdir()
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
         current_version: 2.1.0-5123
         parse = (?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)\-(?P<build>\d+)
@@ -2154,7 +2170,7 @@ def test_example_5(tmpdir, capsys):
 def test_example_6(tmpdir, capsys):
     tmpdir.join("VERSION").write("2.1.0-5123")
     tmpdir.chdir()
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
         current_version: 2.1.0-5123
         parse = (?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)\-(?P<build>\d+)
@@ -2176,7 +2192,7 @@ def test_example_6(tmpdir, capsys):
 def test_example_7(tmpdir, capsys):
     tmpdir.join("VERSION.txt").write("2.1.0-alpha")
     tmpdir.chdir()
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
         current_version: 2.1.0-alpha
         parse = (?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)\-(?P<release>[a-z]+)
@@ -2198,7 +2214,7 @@ def test_example_7(tmpdir, capsys):
 def test_example_8(tmpdir, capsys):
     tmpdir.join("VERSION.txt").write("2.1.0-alpha")
     tmpdir.chdir()
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
         current_version: 2.1.0-alpha
         parse = (?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(\-(?P<release>[a-z]+))?
@@ -2226,7 +2242,7 @@ def test_example_8(tmpdir, capsys):
 def test_example_9(tmpdir, capsys):
     tmpdir.join("VERSION.txt").write("1.0a1")
     tmpdir.chdir()
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
         current_version = 1.0a1
     
@@ -2300,21 +2316,21 @@ def test_example_9(tmpdir, capsys):
 def test_example_10(tmpdir, capsys):
     tmpdir.join("VERSION.txt").write("1.0.0")
     tmpdir.chdir()
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
         current_version = 1.0.0
-    
+
         parse =
             (?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)              # major, minor and patch
             (?:\-(?P<pre>(?:dev|alpha|beta|rc))\.(?P<prenum>\d+))?      # pre-release
             (?:\+(?P<build>\d+))?                                       # build metadata
-    
+
         serialize =
             {major}.{minor}.{patch}-{pre}.{prenum}+{build}
             {major}.{minor}.{patch}-{pre}.{prenum}
             {major}.{minor}.{patch}+{build}
             {major}.{minor}.{patch}
-    
+
         [bumpversion:part:pre]
         optional_value = stable
         values =
@@ -2323,13 +2339,13 @@ def test_example_10(tmpdir, capsys):
             beta
             rc
             stable
-        
+
         [bumpversion:part:prenum]
         first_value = 1
-        
+
         [bumpversion:part:build]
         independent = True
-    
+
         [bumpversion:file:VERSION.txt]
         """))
 
@@ -2385,7 +2401,7 @@ def test_example_11a(tmpdir, capsys):
     tmpdir.join(".bumpversion.cfg").write(dedent("""
         [bumpversion]
         current_version: 1.2.0
-    
+
         [bumpversion:file:VERSION]
         search = VERSION = {current_version}
         replace = VERSION = {new_version}
@@ -2404,7 +2420,7 @@ def test_example_11b(tmpdir, capsys):
         ----------
         Version v1.2.0 (2018-01-01)
         ---------------------------
-        
+
         - New features
         """))
 
@@ -2412,7 +2428,7 @@ def test_example_11b(tmpdir, capsys):
     tmpdir.join(".bumpversion.cfg").write(dedent("""
         [bumpversion]
         current_version: 1.2.0
-        
+
         [bumpversion:file:CHANGELOG.rst]
         search = 
             Unreleased
@@ -2434,7 +2450,7 @@ def test_example_11b(tmpdir, capsys):
         ---------------------------
         Version v1.2.0 (2018-01-01)
         ---------------------------
-    
+
         - New features
         """).replace("XXXX", "{:04}-{:02}-{:02}".format(now.year, now.month, now.day))
 
@@ -2447,7 +2463,7 @@ def test_example_12(tmpdir, capsys):
     tmpdir.join(".bumpversion.cfg").write(dedent("""
         [bumpversion]
         current_version: 1.2.0
-        
+
         [bumpversion:file:VERSION.txt]
         serialize =
             {major}.{minor}.{patch}+{$USER}
@@ -2466,15 +2482,15 @@ def test_example_13(tmpdir, capsys):
         #define BUILD_DESCRIPTION 2.1.0 (2017-12-04 12:00)
         """))
     tmpdir.chdir()
-    tmpdir.join(".bumpversion.cfg").write(dedent("""
+    tmpdir.join(".bumpversion.cfg").write(dedent(r"""
         [bumpversion]
         current_version = 2.1.0 2017-12-04
         serialize = {major}.{minor}.{patch} {now:%Y-%m-%d}
         parse = (?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)\s(?P<date>\d{4}-\d{2}-\d{2})
-    
+
         [bumpversion:file:VERSION.h:0]
         serialize = {major}.{minor}.{patch}
-    
+
         [bumpversion:file:VERSION.h:1]
         serialize = {date}
         """))
