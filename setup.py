@@ -35,9 +35,9 @@ setup(
     long_description=long_description,
     entry_points={
         'console_scripts': [
-            'bumpversion = bumpversion:main',
-            'bump2version = bumpversion:main',
-            'advbumpversion = bumpversion:main',
+            'bumpversion = bumpversion:_main',
+            'bump2version = bumpversion:_main',
+            'advbumpversion = bumpversion:_main',
         ]
     },
     classifiers=[
@@ -49,8 +49,6 @@ setup(
         'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.2',
-        'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
