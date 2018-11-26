@@ -25,17 +25,30 @@ SUBPROCESS_ENV = dict(
 
 call = partial(subprocess.call, env=SUBPROCESS_ENV)
 check_call = partial(subprocess.check_call, env=SUBPROCESS_ENV)
-check_output = partial(subprocess.check_output,  env=SUBPROCESS_ENV)
+check_output = partial(subprocess.check_output, env=SUBPROCESS_ENV)
 
-xfail_if_no_git = pytest.mark.xfail(
-  call(["git", "help"]) != 0,
-  reason="git is not installed"
-)
+_has_git = call(["git", "help"]) == 0
+_has_hg = call(["hg", "help"]) == 0
 
-xfail_if_no_hg = pytest.mark.xfail(
-  call(["hg", "help"]) != 0,
-  reason="hg is not installed"
-)
+
+def xfail_if_no_git(params):
+  if not isinstance(params, (tuple, list)):
+    params = (params,)
+  if _has_git:
+    marks = ()
+  else:
+    marks = pytest.mark.xfail(reason="git is not installed"),
+  return pytest.param(*params, marks=marks)
+
+
+def xfail_if_no_hg(params):
+  if not isinstance(params, (tuple, list)):
+    params = (params,)
+  if _has_hg:
+    marks = ()
+  else:
+    marks = pytest.mark.xfail(reason="hg is not installed"),
+  return pytest.param(*params, marks=marks)
 
 
 @pytest.fixture(params=['.bumpversion.cfg', 'setup.cfg'])
